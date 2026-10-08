@@ -23,6 +23,7 @@ mod constant;
 #[cfg(feature = "alloc")]
 pub mod bigint;
 
+#[cfg(feature = "alloc")]
 mod exp_vartime;
 mod limbs;
 mod limbs512;

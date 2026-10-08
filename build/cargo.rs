@@ -17,7 +17,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use self::build::{
-    AsmTarget, Endian, PREGENERATED, Profile, Target, Tools, build_c_code,
+    AsmTarget, Endian, PREGENERATED, Profile, Target, Tools, WASM32, WASM64, build_c_code,
     generate_sources_and_preassemble, walk_non_root_sources,
 };
 // Avoid `std::env` here; use `self::env` instead.
@@ -70,10 +70,12 @@ mod env {
     }
 
     // In alphabetical order
+    define_env! { pub CARGO_CFG_TARGET_ABI: SetByCargo }
     define_env! { pub CARGO_CFG_TARGET_ARCH: SetByCargo }
     define_env! { pub CARGO_CFG_TARGET_ENDIAN: SetByCargo }
     define_env! { pub CARGO_CFG_TARGET_ENV: SetByCargo }
     define_env! { pub CARGO_CFG_TARGET_OS: SetByCargo }
+    define_env! { pub CARGO_CFG_TARGET_POINTER_WIDTH: SetByCargo }
     define_env! { pub CARGO_MANIFEST_DIR: SetByCargo }
     define_env! { pub CARGO_MANIFEST_LINKS: SetByCargo }
     define_env! { pub CARGO_PKG_NAME: SetByCargo }
@@ -133,11 +135,26 @@ fn ring_build_rs_main(tools: &Tools, c_root_dir: &Path, core_name_and_version: &
     let out_dir = env::var_os(&env::OUT_DIR).unwrap();
     let out_dir = PathBuf::from(out_dir);
 
-    let arch = env::var(&env::CARGO_CFG_TARGET_ARCH).unwrap();
+    // PolyASM lowers one image from the LLVM bitcode of the whole crate graph,
+    // and each PolyASM target compiles against the LLVM triple of the
+    // WebAssembly target with its pointer width. The portable C sources go
+    // through clang for that triple as bitcode objects, rustc bundles them
+    // into this crate's rlib, and the PolyASM emitter lowers them together
+    // with the Rust code.
+    let polyasm = env::var(&env::CARGO_CFG_TARGET_ABI).as_deref() == Some("polyasm");
+    let arch = if polyasm {
+        match env::var(&env::CARGO_CFG_TARGET_POINTER_WIDTH).as_deref() {
+            Some("64") => String::from(WASM64),
+            _ => String::from(WASM32),
+        }
+    } else {
+        env::var(&env::CARGO_CFG_TARGET_ARCH).unwrap()
+    };
+    let llvm_bitcode_triple = polyasm.then(|| format!("{arch}-unknown-unknown"));
     let os = env::var(&env::CARGO_CFG_TARGET_OS).unwrap();
     let env = env::var(&env::CARGO_CFG_TARGET_ENV).unwrap();
-    let endian = env::var(&env::CARGO_CFG_TARGET_ENDIAN).unwrap();
-    let endian = if endian == "little" {
+    // PolyASM targets lower through the little-endian WebAssembly triple.
+    let endian = if polyasm || env::var(&env::CARGO_CFG_TARGET_ENDIAN).unwrap() == "little" {
         Endian::Little
     } else {
         Endian::Other
@@ -159,6 +176,7 @@ fn ring_build_rs_main(tools: &Tools, c_root_dir: &Path, core_name_and_version: &
         os,
         env,
         endian,
+        llvm_bitcode_triple,
     };
     let profile = Profile {
         is_debug,
@@ -174,9 +192,11 @@ fn ring_build_rs_main(tools: &Tools, c_root_dir: &Path, core_name_and_version: &
     //
     // If `.git` doesn't exist then assume that this is a packaged build where
     // we want to optimize for minimizing the build tools required: No Perl,
-    // no nasm, etc.
-    let generated_dir = if !is_git {
-        c_root_dir.join(PREGENERATED)
+    // no nasm, etc. A source snapshot that carries neither `.git` nor
+    // `pregenerated` generates the current target like the `.git` case.
+    let pregenerated_dir = c_root_dir.join(PREGENERATED);
+    let generated_dir = if !is_git && pregenerated_dir.is_dir() {
+        pregenerated_dir
     } else {
         generate_sources_and_preassemble(
             tools,

@@ -34,7 +34,8 @@ const X86: &str = "x86";
 const X86_64: &str = "x86_64";
 const AARCH64: &str = "aarch64";
 const ARM: &str = "arm";
-const WASM32: &str = "wasm32";
+pub const WASM32: &str = "wasm32";
+pub const WASM64: &str = "wasm64";
 
 #[rustfmt::skip]
 const RING_SRCS: &[(&[&str], &str)] = &[
@@ -285,6 +286,9 @@ pub struct Target {
     pub os: String,
     pub env: String,
     pub endian: Endian,
+    /// The LLVM triple the C sources compile to as bitcode objects, which
+    /// PolyASM targets set and every native target leaves empty.
+    pub llvm_bitcode_triple: Option<String>,
 }
 
 pub enum Endian {
@@ -401,7 +405,13 @@ fn new_build(
     include_dir: &Path,
 ) -> cc::Build {
     let mut b = cc::Build::new();
+    if let Some(triple) = &target.llvm_bitcode_triple {
+        let _ = b.target(triple);
+    }
     configure_cc(&mut b, target, profile, c_root_dir, include_dir);
+    if target.llvm_bitcode_triple.is_some() {
+        let _ = b.flag("-flto").flag("-g0");
+    }
     b
 }
 
@@ -492,7 +502,7 @@ fn configure_cc(
     }
 
     // Allow cross-compiling without a target sysroot for these targets.
-    if (target.arch == WASM32)
+    if (target.arch == WASM32 || target.arch == WASM64)
         || (target.os == "linux" && target.env == "musl" && target.arch != X86_64)
     {
         // TODO: Expand this to non-clang compilers in 0.17.0 if practical.

@@ -142,7 +142,7 @@ fn uncompact_word(a: Word) -> Word {
 
 fn compact_block(input: &[u8; 16]) -> [Word; BLOCK_WORDS] {
     let (input, _) = input.as_chunks();
-    let out: [Word; BLOCK_WORDS] = array::from_fn(|i| Word::from_ne_bytes(input[i]));
+    let out: [Word; BLOCK_WORDS] = array::from_fn(|i| Word::from_le_bytes(input[i]));
     let a0 = compact_word(out[0]);
     let a1 = compact_word(out[1]);
 
@@ -187,8 +187,8 @@ fn uncompact_block(out: &mut [u8; BLOCK_LEN], input: &[Word; BLOCK_WORDS]) {
             let b1 = uncompact_word(b1);
 
             let mut out = out.chunks_mut(size_of::<Word>());
-            out.next().unwrap().copy_from_slice(&Word::to_ne_bytes(b0));
-            out.next().unwrap().copy_from_slice(&Word::to_ne_bytes(b1));
+            out.next().unwrap().copy_from_slice(&Word::to_le_bytes(b0));
+            out.next().unwrap().copy_from_slice(&Word::to_le_bytes(b1));
         },
         32 => {
             let a2 = input[2];
@@ -210,10 +210,10 @@ fn uncompact_block(out: &mut [u8; BLOCK_LEN], input: &[Word; BLOCK_WORDS]) {
             let b3 = uncompact_word(b3);
 
             let mut out = out.chunks_mut(size_of::<Word>());
-            out.next().unwrap().copy_from_slice(&Word::to_ne_bytes(b0));
-            out.next().unwrap().copy_from_slice(&Word::to_ne_bytes(b1));
-            out.next().unwrap().copy_from_slice(&Word::to_ne_bytes(b2));
-            out.next().unwrap().copy_from_slice(&Word::to_ne_bytes(b3));
+            out.next().unwrap().copy_from_slice(&Word::to_le_bytes(b0));
+            out.next().unwrap().copy_from_slice(&Word::to_le_bytes(b1));
+            out.next().unwrap().copy_from_slice(&Word::to_le_bytes(b2));
+            out.next().unwrap().copy_from_slice(&Word::to_le_bytes(b3));
         },
         _ => {
             compile_error!("unimplemented")
@@ -239,7 +239,7 @@ fn swap_bits<const A: usize, const B: usize, const MASK_BYTE: u8, const SHIFT: u
     w: &mut [Word; 8],
 ) {
     // TODO: const MASK: Word = ...
-    let mask = Word::from_ne_bytes([MASK_BYTE; core::mem::size_of::<Word>()]);
+    let mask = Word::from_le_bytes([MASK_BYTE; core::mem::size_of::<Word>()]);
 
     // This is a variation on a delta swap.
     let swap = ((w[A] >> SHIFT) ^ w[B]) & mask;
